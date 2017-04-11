@@ -5,17 +5,14 @@ import com.flipkart.perf.common.jackson.ObjectMapperUtil;
 import com.flipkart.perf.controller.JobController;
 import com.flipkart.perf.core.LoadController;
 import com.flipkart.perf.datagenerator.DataGeneratorInfo;
-import com.flipkart.perf.inmemorydata.SharedDataInfo;
 import com.strategicgains.restexpress.Format;
 import com.strategicgains.restexpress.RestExpress;
 import com.strategicgains.restexpress.response.ResponseProcessor;
-import org.codehaus.jackson.JsonParseException;
 import org.jboss.netty.handler.codec.http.HttpMethod;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
-import java.io.IOException;
 import java.util.*;
 
 /**
@@ -53,28 +50,27 @@ public class Load {
         this.setLogLevel();
         // Validate if anything is wrong with the Load Configuration
         validate();
-        RestExpress server = initializeHttpServer(httpPort);
+        // Start the Load Controller and Wait for Completion
+        LoadController loadController =  new LoadController(jobId, this);
+        RestExpress server = initializeHttpServer(httpPort, loadController);
         try {
-            // Start the Load Controller and Wait for Completion
-            LoadController loadController =  new LoadController(jobId, this);
-            loadController.start();
-            loadController.join();
-        }
-        catch (Exception e) {
+            loadController.blockingStart();
+        } catch (Exception e) {
             logger.error("Error While Generating Load", e);
             throw e;
-        }
-        finally {
+        } finally {
             server.shutdown();
         }
         return this;
     }
 
-    private static RestExpress initializeHttpServer(int httpPort) {
+    private static RestExpress initializeHttpServer(int httpPort, LoadController loadController) {
         RestExpress server = new RestExpress();
         server.putResponseProcessor(Format.JSON, ResponseProcessor.defaultJsonProcessor());
-        server.uri("/loader-core/kill", new JobController()).action("kill", HttpMethod.PUT);
+        server.uri("/loader-core/kill", new JobController(loadController)).action("kill", HttpMethod.PUT);
         server.bind(httpPort);
+        server.setIoThreadCount(2);
+        server.setExecutorThreadCount(4);
         return server;
     }
 
@@ -153,6 +149,8 @@ public class Load {
     }
 
     public static void main(String[] args) throws Exception {
+        System.setProperty("org.apache.commons.logging.Log", "org.apache.commons.logging.impl.NoOpLog");
+
         Load load = ObjectMapperUtil.instance().readValue(new File("/tmp/1387349662547"), Load.class);
         load.start(System.currentTimeMillis()+"", 4567);
     }

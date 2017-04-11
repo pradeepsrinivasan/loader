@@ -1,12 +1,12 @@
 package com.flipkart.perf.core;
 
 import com.flipkart.perf.common.util.ClassHelper;
+import com.flipkart.perf.common.util.Clock;
 import com.flipkart.perf.datagenerator.DataGenerator;
 import com.flipkart.perf.datagenerator.DataGeneratorInfo;
 import com.flipkart.perf.domain.Group;
 import com.flipkart.perf.domain.GroupFunction;
 import com.flipkart.perf.domain.Load;
-import com.flipkart.perf.common.util.Clock;
 import com.flipkart.perf.inmemorydata.SharedDataInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,12 +14,13 @@ import org.slf4j.LoggerFactory;
 import java.io.FileNotFoundException;
 import java.lang.reflect.Method;
 import java.util.*;
+import java.util.concurrent.ThreadPoolExecutor;
 
 /**
  * Entry point of Load Generation.
  * This Thread Creates Group Controller resolving Group Dependencies on the way.
  */
-public class LoadController extends Thread{
+public class LoadController {
     // Map of group and list of dependent groups
     private Map<String,List<String>> groupDependency = new LinkedHashMap<String,List<String>>();
 
@@ -32,9 +33,10 @@ public class LoadController extends Thread{
     private static Logger logger = LoggerFactory.getLogger(LoadController.class);
 
     private final String jobId;
+    private ThreadPoolExecutor groupControllerPool;
 
     public LoadController(String jobId, Load load) throws Exception {
-        this.setName("Thread-LoadController");
+
         this.jobId = jobId;
 
         this.groupMap   =   load.groupMap();
@@ -62,6 +64,100 @@ public class LoadController extends Thread{
         }
 
         FunctionContext.initialize(sharedDataInfoMap, globalDataGenerators);
+    }
+
+
+
+    /**
+     * Function that starts the load generation
+     */
+    public void blockingStart() {
+        logger.info("****"+jobId+" LOAD CONTROLLER STARTED****");
+        long startTime = Clock.milliTick();
+        while(true) {
+            ArrayList<GroupController> groupsToRun = new ArrayList<GroupController>();
+            int groupsCanNotStartThisTime = 0;
+
+            for(String group : this.groupControllersMap.keySet()) {
+                GroupController groupController = this.groupControllersMap.get(group);
+
+                if(!groupController.started()) {
+                    boolean groupCanRun = true;
+
+                    List<String> dependencyList = this.groupDependency.get(group);
+                    if(dependencyList != null) {
+                        for(String dependOnGroup : dependencyList) {
+                            GroupController dependOnGroupController = this.groupControllersMap.get(dependOnGroup);
+
+                            if(!dependOnGroupController.started() || dependOnGroupController.isAlive()) {
+                                groupCanRun = false;
+                                break;
+                            }
+                        }
+                    }
+
+                    if(groupCanRun)
+                        groupsToRun.add(this.groupControllersMap.get(group));
+                    else
+                        groupsCanNotStartThisTime++;
+
+                }
+            }
+
+            for(GroupController groupController : groupsToRun) {
+                logger.info("******"+jobId+" Running Group [" + groupController.getGroupName() + "]"+"******");
+
+                try {
+                    groupController.start();
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                } catch (FileNotFoundException e) {
+                    throw new RuntimeException(e);
+                }
+            }
+
+            groupsToRun.clear();
+
+            if(groupsCanNotStartThisTime == 0 )
+                break;
+
+            logger.debug(jobId + " Groups Can not be started :" + groupsCanNotStartThisTime);
+        }
+
+        // By now there is no group pending to get started
+        waitTillGroupsFinish(this.groupControllersMap.values());
+        logger.info(jobId+" Loader Execution Time :" + (System.currentTimeMillis() - startTime) + " milli seconds");
+    }
+
+    public void stop() {
+        for ( Map.Entry<String, GroupController> entry : groupControllersMap.entrySet()) {
+            entry.getValue().stop();
+        }
+    }
+
+    private void waitTillGroupsFinish(Collection<GroupController> groupControllers) {
+        while(haveLiveGroups(groupControllers) )
+            try {
+                Clock.sleep(250);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+    }
+
+    private boolean haveLiveGroups(Collection<GroupController> groupControllers) {
+        boolean stillHaveAliveGroups = false;
+        List<GroupController> deadGroups = new ArrayList<GroupController>();
+        for(GroupController grouper : groupControllers) {
+            if(grouper.isAlive())
+                stillHaveAliveGroups = true;
+            else {
+                deadGroups.add(grouper);
+                logger.info("************Group Controller "+grouper.getGroupName()+" Ended**************");
+                grouper.stopStatsCollection();
+            }
+        }
+        groupControllers.removeAll(deadGroups);
+        return stillHaveAliveGroups;
     }
 
 
@@ -155,95 +251,4 @@ public class LoadController extends Thread{
         return dependencyFlow;
     }
 
-    /**
-     * Function that starts the load generation
-     */
-    public void run() {
-        logger.info("****"+jobId+" LOAD CONTROLLER STARTED****");
-        long startTime = Clock.milliTick();
-        while(true) {
-            ArrayList<GroupController> groupsToRun = new ArrayList<GroupController>();
-            int groupsCanNotStartThisTime = 0;
-
-            for(String group : this.groupControllersMap.keySet()) {
-                GroupController groupController = this.groupControllersMap.get(group);
-
-                if(!groupController.started()) {
-                    boolean groupCanRun = true;
-
-                    List<String> dependencyList = this.groupDependency.get(group);
-                    if(dependencyList != null) {
-                        for(String dependOnGroup : dependencyList) {
-                            GroupController dependOnGroupController = this.groupControllersMap.get(dependOnGroup);
-
-                            if(!dependOnGroupController.started() || dependOnGroupController.isAlive()) {
-                                groupCanRun = false;
-                                break;
-                            }
-                        }
-                    }
-
-                    if(groupCanRun)
-                        groupsToRun.add(this.groupControllersMap.get(group));
-                    else
-                        groupsCanNotStartThisTime++;
-
-                }
-            }
-
-            // Start Group Controllers which can be started
-            for(GroupController groupController : groupsToRun) {
-                logger.info("******"+jobId+" Running Group [" + groupController.getGroupName() + "]"+"******");
-
-                try {
-                    groupController.start();
-                } catch (InterruptedException e) {
-                    throw new RuntimeException(e);
-                } catch (FileNotFoundException e) {
-                    throw new RuntimeException(e);
-                }
-            }
-
-            groupsToRun.clear();
-
-            if(groupsCanNotStartThisTime == 0 )
-                break;
-
-            logger.debug(jobId + " Groups Can not be started :" + groupsCanNotStartThisTime);
-            try {
-                Clock.sleep(250);
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-            }
-        }
-
-        // By now there is no group pending to get started
-        waitTillGroupsFinish(this.groupControllersMap.values());
-        logger.info(jobId+" Loader Execution Time :" + (System.currentTimeMillis() - startTime) + " milli seconds");
-    }
-
-    private void waitTillGroupsFinish(Collection<GroupController> groupControllers) {
-        while(haveLiveGroups(groupControllers))
-            try {
-                Clock.sleep(250);
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-            }
-    }
-
-    private boolean haveLiveGroups(Collection<GroupController> groupControllers) {
-        boolean stillHaveAliveGroups = false;
-        List<GroupController> deadGroups = new ArrayList<GroupController>();
-        for(GroupController grouper : groupControllers) {
-            if(grouper.isAlive())
-                stillHaveAliveGroups = true;
-            else {
-                deadGroups.add(grouper);
-                logger.info("************Group Controller "+grouper.getGroupName()+" Ended**************");
-                grouper.stopStatsCollection();
-            }
-        }
-        groupControllers.removeAll(deadGroups);
-        return stillHaveAliveGroups;
-    }
 }

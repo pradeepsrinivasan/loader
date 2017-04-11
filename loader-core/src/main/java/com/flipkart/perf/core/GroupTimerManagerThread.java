@@ -20,40 +20,40 @@ public class GroupTimerManagerThread extends Thread{
         this.interval           =   1000;
     }
 
-    public void run() {
-        logger.info("Timer Thread for group '"+groupController.getGroupName()+"'");
-        do{
-            logger.debug("Group '"+this.groupController.getGroupName()+"' is Alive.");
-
-            GroupTimer newTimer =   findTimerBean();
-            if(newTimer.getName().equals(this.currentTimer) == false) {
-                logger.info("Timer needs to change from '"+this.currentTimer+"' to '"+ newTimer.getName()+"'");
-                this.currentTimer   =   newTimer.getName();
-                try {
-                    if(newTimer.getThreads() <= 0) {
-                        logger.info("Pausing Group '"+this.groupController.getGroupName()+"' for '"+ newTimer.getDuration()+"' milliseconds");
-                        this.groupController.pause(); // Don't make threads 0 here. It might fool GroupController to Stop the execution.
-                    }
-                    else {
-                        this.groupController.resume();
-                        this.groupController.setThroughput(newTimer.getThroughput());
-                        this.groupController.setThreads(newTimer.getThreads());
-                    }
-                } catch (ClassNotFoundException e) {
-                    e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
-                } catch (NoSuchMethodException e) {
-                    e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
-                }
-            }
-
-            try {
-                logger.debug("Sleeping for "+this.interval+" milli seconds");
-                Thread.sleep(this.interval);
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-            }
-        }while(this.groupController.isAlive());
-    }
+//    public void run() {
+//        logger.info("Timer Thread for group '"+groupController.getGroupName()+"'");
+//        do{
+//            logger.debug("Group '"+this.groupController.getGroupName()+"' is Alive.");
+//
+//            GroupTimer newTimer =   findTimerBean();
+//            if(newTimer.getName().equals(this.currentTimer) == false) {
+//                logger.info("Timer needs to change from '"+this.currentTimer+"' to '"+ newTimer.getName()+"'");
+//                this.currentTimer   =   newTimer.getName();
+//                try {
+//                    if(newTimer.getThreads() <= 0) {
+//                        logger.info("Pausing Group '"+this.groupController.getGroupName()+"' for '"+ newTimer.getDuration()+"' milliseconds");
+//                        this.groupController.pause(); // Don't make threads 0 here. It might fool GroupController to Stop the execution.
+//                    }
+//                    else {
+//                        this.groupController.resume();
+//                        this.groupController.setThroughput(newTimer.getThroughput());
+//                        this.groupController.setThreads(newTimer.getThreads());
+//                    }
+//                } catch (ClassNotFoundException e) {
+//                    e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
+//                } catch (NoSuchMethodException e) {
+//                    e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
+//                }
+//            }
+//
+//            try {
+//                logger.debug("Sleeping for "+this.interval+" milli seconds");
+//                Thread.sleep(this.interval);
+//            } catch (InterruptedException e) {
+//                e.printStackTrace();
+//            }
+//        }while(this.groupController.isAlive());
+//    }
 
     public GroupTimer findTimerBean() {
         long groupRuntimeMS   =   this.groupController.getRunTimeMS();

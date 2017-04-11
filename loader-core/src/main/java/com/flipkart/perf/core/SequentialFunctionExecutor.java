@@ -17,17 +17,18 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class SequentialFunctionExecutor extends Thread {
+// Rename this function - its no more an executor. Its just a task
+public class SequentialFunctionExecutor implements Runnable {
     private static final int PAUSE_CHECK_DELAY   =   200;
     private static Logger logger = LoggerFactory.getLogger(SequentialFunctionExecutor.class);
     private static final int MILLION = 1000000;
     private static final int MINIMUM_SLEEP_TIME = 10;
     private List<SyncFunctionExecutor> fExecutors;
 
-    private boolean paused = false;
-    private boolean running = false;
-    private boolean stop = false;
-    private boolean over = false;
+    private volatile boolean paused = false;
+    private volatile boolean running = false;
+    private volatile boolean stop = false;
+    private volatile boolean over = false;
 
     private final Group group;
     private Map<String,Object> threadResources;
@@ -57,8 +58,6 @@ public class SequentialFunctionExecutor extends Thread {
                                       List<String> ignoreDumpFunctions,
                                       float throughput,
                                       Map<String, DataGenerator> groupDataGenerators) {
-
-        super(threadExecutorName);
         this.group = group;
         this.throughput = group.getThroughput() / group.getThreads();
         this.forcedDurationPerIterationNS = (long)((1000 / this.throughput) * 1000000);
@@ -81,7 +80,7 @@ public class SequentialFunctionExecutor extends Thread {
         return threadStartDelay;
     }
 
-    public SequentialFunctionExecutor setThreadStartDelay(int threadStartDelay) {
+        public SequentialFunctionExecutor setThreadStartDelay(int threadStartDelay) {
         this.threadStartDelay = threadStartDelay;
         logger.info("Thread Start Delay :"+this.threadStartDelay);
         return this;
@@ -119,22 +118,24 @@ public class SequentialFunctionExecutor extends Thread {
     }
 
     public void run () {
+
         threadStartDelay();
         initializeUserFunctions();
         doWarmUp();
         doRun();
         destroyUserFunctions();
+
         this.running = false;
         this.over = true;
 
     }
 
     private void doRun() {
-        logger.info("Sequential Function Executor '" + this.getName() + "' started");
-        Counter repeatCounter = new Counter(this.group.getName(), this.getName(), this.getName());
+        logger.info("Sequential Function Executor '" + Thread.currentThread().getName() + "' started");
+        Counter repeatCounter = new Counter(this.group.getName(), Thread.currentThread().getName(), Thread.currentThread().getName());
         while(canRepeat(this.requestQueue)) {
             if(this.isPaused()) {
-                logger.info(this.getName()+" is paused");
+                logger.info(Thread.currentThread().getName()+" is paused");
                 try {
                     Clock.sleep(PAUSE_CHECK_DELAY);
                 } catch (InterruptedException e) {
@@ -154,7 +155,7 @@ public class SequentialFunctionExecutor extends Thread {
             FunctionContext functionContext = new FunctionContext(customTimers, this.customCounters, functionHistograms, this.groupDataGenerators).
                     updateParameters(this.groupParams).
                     updateParameters(this.threadResources).
-                    setMyThread(this);
+                    setMyThread(Thread.currentThread());
 
             GroupStatsInstance groupStatsInstance = new GroupStatsInstance(customTimers, functionTimers, functionHistograms);
 
@@ -217,14 +218,14 @@ public class SequentialFunctionExecutor extends Thread {
             repeatCounter.increment();
             sleepInterval();
         }
-        logger.info("Sequential Function Executor '" + this.getName() + "' Over. Repeats Done :"+repeatCounter.count());
+        logger.info("Sequential Function Executor '" + Thread.currentThread().getName() + "' Over. Repeats Done :"+repeatCounter.count());
     }
 
     private void doWarmUp() {
-        logger.info("Sequential Function Executor Warm Up '" + this.getName() + "' started");
+        logger.info("Sequential Function Executor Warm Up '" + Thread.currentThread().getName() + "' started");
 
         long startTime = Clock.milliTick();
-        Counter repeatCounter = new Counter(group.getName(),this.getName(), this.getName());
+        Counter repeatCounter = new Counter(group.getName(),Thread.currentThread().getName(), Thread.currentThread().getName());
         while(canRepeat(this.warmUpRequestQueue)) {
             long iterationStartTimeNS = Clock.nsTick();
             this.reset();
@@ -235,7 +236,7 @@ public class SequentialFunctionExecutor extends Thread {
             FunctionContext functionContext = new FunctionContext(customTimers, this.customCounters, functionHistograms, this.groupDataGenerators).
                     updateParameters(this.groupParams).
                     updateParameters(this.threadResources).
-                    setMyThread(this);
+                    setMyThread(Thread.currentThread());
 
             for(int functionNo = 0; functionNo < this.groupFunctions.size(); functionNo++) {
                 GroupFunction groupFunction =   this.groupFunctions.get(functionNo);
@@ -279,7 +280,7 @@ public class SequentialFunctionExecutor extends Thread {
             repeatCounter.increment();
             sleepInterval();
         }
-        logger.info("Sequential Function Executor Warm Up '" + this.getName() + "' Over. Repeats Done :"+repeatCounter.count());
+        logger.info("Sequential Function Executor Warm Up '" + Thread.currentThread().getName() + "' Over. Repeats Done :"+repeatCounter.count());
         for(Counter counter : this.customCounters.values())
             counter.reset();
         long warmUpDuration = Clock.milliTick() - startTime;
@@ -435,6 +436,6 @@ public class SequentialFunctionExecutor extends Thread {
     public void setThroughput(float throughput) {
         this.throughput = throughput;
         this.forcedDurationPerIterationNS = (int)((MathConstant.THOUSAND / this.throughput) * MathConstant.MILLION);
-        logger.info(this.getName()+" Expected Throughput :"+this.throughput+ "forcedDurationPerIterationNS: "+this.forcedDurationPerIterationNS);
+        logger.info(Thread.currentThread().getName()+" Expected Throughput :"+this.throughput+ "forcedDurationPerIterationNS: "+this.forcedDurationPerIterationNS);
     }
 }
